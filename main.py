@@ -1,7 +1,7 @@
 from flask import Flask, make_response, jsonify, abort, request, blueprints
 from data import db_session, shop_api
 from waitress import serve
-
+# комент
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'yandexlyceum_secret_key'
 x = 0
