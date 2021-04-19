@@ -2,8 +2,9 @@ import datetime
 import argparse
 import requests
 
-HOST = '0.0.0.0'
-# HOST = '127.0.0.1'
+# HOST = '0.0.0.0'
+HOST = '127.0.0.1'
+PORT = 5000
 parser = argparse.ArgumentParser(  # объект обрабатывающий аргументы(как в функции)
     description="convert integers to decimal system")
 parser.add_argument('--clear', default='0', type=str, help='need to delete all data?(yes(1)/no(0))')
@@ -21,21 +22,21 @@ def check_assign_time(j1: dict, j2: dict):
 
 # methods for comfortable testing
 def add_couriers(data) -> requests.models.Response:
-    url = f'http://{HOST}:8080/couriers'
+    url = f'http://{HOST}:{PORT}/api/couriers'
     response = requests.post(url, json=data)
     # print(response, response.json())
     return response
 
 
 def add_orders(data) -> requests.models.Response:
-    url = f'http://{HOST}:8080/orders'
+    url = f'http://{HOST}:{PORT}/api/orders'
     response = requests.post(url, json=data)
     # print(response, response.json())
     return response
 
 
 def edit_courier(courier_id, data) -> requests.models.Response:
-    url = f'http://{HOST}:8080/couriers/' + str(courier_id)
+    url = f'http://{HOST}:{PORT}/api/couriers/' + str(courier_id)
     response = requests.patch(url, json=data)
     # if not response:
     #     print(response)
@@ -45,7 +46,7 @@ def edit_courier(courier_id, data) -> requests.models.Response:
 
 
 def get_courier(courier_id) -> requests.models.Response:
-    url = f'http://{HOST}:8080/couriers/' + str(courier_id)
+    url = f'http://{HOST}:{PORT}/api/couriers/' + str(courier_id)
     response = requests.get(url)
     # if not response:
     #     print(response)
@@ -55,7 +56,7 @@ def get_courier(courier_id) -> requests.models.Response:
 
 
 def assign_orders(courier_id) -> requests.models.Response:
-    url = f'http://{HOST}:8080/orders/assign'
+    url = f'http://{HOST}:{PORT}/api/orders/assign'
     data = {'courier_id': courier_id}
     response = requests.post(url, json=data)
     # if not response:
@@ -66,7 +67,7 @@ def assign_orders(courier_id) -> requests.models.Response:
 
 
 def complete_orders(data) -> requests.models.Response:
-    url = f'http://{HOST}:8080/orders/complete'
+    url = f'http://{HOST}:{PORT}/api/orders/complete'
     response = requests.post(url, json=data)
     # if not response:
     #     print(response)
@@ -76,7 +77,7 @@ def complete_orders(data) -> requests.models.Response:
 
 
 def clear_db(data):
-    url = f'http://{HOST}:8080/clear'
+    url = f'http://{HOST}:{PORT}/api/clear'
     response = requests.post(url, json=data)
     # print(response, response.json())
 
@@ -88,7 +89,7 @@ def test_connection():
     print('Внимание, Тестирование запустит очистку базы данных')
     ans = input('Продолжить?(y/n)')
     assert ans == 'y'
-    test_url = f'http://{HOST}:8080/test'
+    test_url = f'http://{HOST}:{PORT}/api/test'
     response = requests.get(test_url)
     # print('Something went wrong: Connection Error')
     # print('Try to rerun service')
