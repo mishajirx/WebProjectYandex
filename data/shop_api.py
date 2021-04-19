@@ -13,6 +13,7 @@ from data.workinghours import WH
 from data.deliveryhours import DH
 from typing import List, Optional
 import json
+from forms.new_order import MakeOrderForm
 from pydantic import validator
 
 blueprint = Blueprint(
@@ -185,19 +186,33 @@ def choose_orders(ords: list, maxw: int) -> list:
         return []
 
 
+def parsing_about(text):
+    try:
+        t, rs, whs = text.split(';')
+        return t, rs, whs
+    except Exception:
+        return False
+
+
 @blueprint.route('/couriers', methods=["POST"])
 @login_required
 def add_couriers():
     if current_user.user_type != 3:
         redirect('/')
         # TODO форма
-
-    # req_json = request.json['data']
+    req_json = request.json['data']
     db_sess = db_session.create_session()
+    already_in_base = [i.id for i in db_sess.query(Courier).all()]
     res = []
     bad_id = []
-    already_in_base = [i.id for i in db_sess.query(Courier).all()]
     is_ok = True
+    # for i in range(len())
+    # t, rs, ws = parsing_about(current_user.about)
+
+    # req_json = [
+    #     {'courier_id': max(already_in_base) + 1, 'courier_type': t, 'regions': rs,
+    #      'working_hours': ws}
+    # ]
     for courier_info in req_json:
         flag = False
         error_ans = []
@@ -240,115 +255,134 @@ def add_couriers():
     return jsonify({"validation_error": bad_id}), 400
 
 
-@blueprint.route('/orders', methods=["POST"])
+@blueprint.route('/orders', methods=["POST", 'GET'])
 @login_required
 def add_orders():
-    # TODO Форма
-    req_json = request.json['data']
-    db_sess = db_session.create_session()
-    res = []
-    bad_id = []
-    is_ok = True
-    already_in_base = [i.id for i in db_sess.query(Order).all()]
-    for order_info in req_json:
-        flag = False
-        error_ans = []
-        try:
-            OrderModel(**order_info, base=already_in_base)
-        except pydantic.ValidationError as e:
-            error_ans += json.loads(e.json())
-            flag = True
-        if order_info['order_id'] in already_in_base:
-            error_ans += [
-                {"loc": ["id"], "msg": "Invalid id: There is a order with the same id",
-                 "type": "value_error"}
-            ]
-        if flag or order_info['order_id'] in already_in_base:
-            is_ok = False
-            bad_id.append({"id": int(order_info['order_id']), 'errors': error_ans})
-        if not is_ok:
-            continue
-        order = Order()
-        order.id = order_info['order_id']
-        order.weight = order_info['weight']
-        order.region = order_info['region']
-        order.orders_courier = 0
-        for i in list(order_info['delivery_hours']):
-            dh = DH()
-            dh.order_id = order.id
-            dh.hours = i
-            db_sess.add(dh)
-        db_sess.add(order)
-        res.append({"id": int(order_info['order_id'])})
-
-    if is_ok:
-        db_sess.commit()
-        return jsonify({"orders": res}), 201
-    pprint({"validation_error": bad_id})
-    print('-------------------------------------------------------------------------')
-    return jsonify({"validation_error": bad_id}), 400
-
-
-@blueprint.route('/couriers/<courier_id>', methods=["PATCH", "GET"])
-@login_required
-def edit_courier(courier_id):
-    if current_user.user_type != 2 or courier_id != current_user.c_id:
+    if current_user.user_type != 0:
         return redirect('/')
+    form = MakeOrderForm()
+    if form.validate_on_submit():
+        req_json = []
+        db_sess = db_session.create_session()
+        res = []
+        bad_id = []
+        is_ok = True
+        already_in_base = [i.id for i in db_sess.query(Order).all()]
+        req_json.append({'order_id': max(already_in_base) + 1, 'weight': form.weight.data,
+                         'region': form.region.data, 'delivery_hours': form.dh.data.split(';')})
+        print(req_json[0]['delivery_hours'])
+        for order_info in req_json:
+            flag = False
+            error_ans = []
+            try:
+                OrderModel(**order_info, base=already_in_base)
+            except pydantic.ValidationError as e:
+                error_ans += json.loads(e.json())
+                flag = True
+            if order_info['order_id'] in already_in_base:
+                error_ans += [
+                    {"loc": ["id"], "msg": "Invalid id: There is a order with the same id",
+                     "type": "value_error"}
+                ]
+            if flag or order_info['order_id'] in already_in_base:
+                is_ok = False
+                bad_id.append({"id": int(order_info['order_id']), 'errors': error_ans})
+            if not is_ok:
+                continue
+            order = Order()
+            order.id = order_info['order_id']
+            order.weight = order_info['weight']
+            order.region = order_info['region']
+            order.orders_courier = 0
+            for i in list(order_info['delivery_hours']):
+                dh = DH()
+                dh.order_id = order.id
+                dh.hours = i
+                db_sess.add(dh)
+            db_sess.add(order)
+            res.append({"id": int(order_info['order_id'])})
+
+        if is_ok:
+            db_sess.commit()
+            return render_template('result.html', u=str({"orders": res}))
+            # return jsonify({"orders": res}), 201
+        pprint({"validation_error": bad_id})
+        print('-------------------------------------------------------------------------')
+        return render_template('result.html', u=str({"validation_error": bad_id}))
+        # return jsonify({"validation_error": bad_id}), 400
+    return render_template('new_order.html', title='Новый заказ', form=form)
+
+
+@blueprint.route('/couriers/edit', methods=["PATCH"])
+@login_required
+def edit_courier():
+    if current_user.user_type != 2:
+        return redirect('/')
+    courier_id = current_user.c_id
     db_sess = db_session.create_session()
     courier = db_sess.query(Courier).filter(Courier.id == courier_id).first()
     if not courier:
         return jsonify({'message': 'no courier with this id'}), 404
-    if request.method == 'PATCH':
-        req_json = request.json
-        try:
-            EditCourierModel(**req_json)
-        except pydantic.ValidationError as e:
-            print({'errors': json.loads(e.json())})
-            return jsonify({'errors': json.loads(e.json())}), 400
-        for k, v in dict(req_json).items():
-            if k == 'courier_type':
-                courier.maxw = c_type[v]
-            elif k == 'regions':
-                db_sess.query(Region).filter(Region.courier_id == courier.id).delete()
-                for i in v:
-                    reg = Region()
-                    reg.courier_id = courier.id
-                    reg.region = i
-                    db_sess.add(reg)
-            elif k == 'working_hours':
-                db_sess.query(WH).filter(WH.courier_id == courier.id).delete()
-                for i in v:
-                    wh = WH()
-                    wh.courier_id = courier.id
-                    wh.hours = i
-                    db_sess.add(wh)
-        db_sess.commit()
-        res = {'courier_id': courier_id, 'courier_type': rev_c_type[courier.maxw]}
-        a = db_sess.query(WH).filter(WH.courier_id == courier.id).all()
-        res['working_hours'] = [i.hours for i in a]
-        b = [i.region for i in db_sess.query(Region).filter(Region.courier_id == courier.id).all()]
-        res['regions'] = b
-        for i in db_sess.query(Order).filter(Order.orders_courier == courier_id).all():
-            dh = db_sess.query(DH).filter(DH.order_id == i.id).all()
-            if i.complete_time:
-                continue
-            if i.region not in res['regions'] or not is_t_ok(dh, a):
-                i.orders_courier = 0
-        db_sess.commit()
-        ords = list(db_sess.query(Order).filter(Order.orders_courier == courier_id,
-                                                Order.complete_time == '').all())
-        for i in ords:
+    req_json = request.json
+    try:
+        EditCourierModel(**req_json)
+    except pydantic.ValidationError as e:
+        print({'errors': json.loads(e.json())})
+        return jsonify({'errors': json.loads(e.json())}), 400
+    for k, v in dict(req_json).items():
+        if k == 'courier_type':
+            courier.maxw = c_type[v]
+        elif k == 'regions':
+            db_sess.query(Region).filter(Region.courier_id == courier.id).delete()
+            for i in v:
+                reg = Region()
+                reg.courier_id = courier.id
+                reg.region = i
+                db_sess.add(reg)
+        elif k == 'working_hours':
+            db_sess.query(WH).filter(WH.courier_id == courier.id).delete()
+            for i in v:
+                wh = WH()
+                wh.courier_id = courier.id
+                wh.hours = i
+                db_sess.add(wh)
+    db_sess.commit()
+    res = {'courier_id': courier_id, 'courier_type': rev_c_type[courier.maxw]}
+    a = db_sess.query(WH).filter(WH.courier_id == courier.id).all()
+    res['working_hours'] = [i.hours for i in a]
+    b = [i.region for i in db_sess.query(Region).filter(Region.courier_id == courier.id).all()]
+    res['regions'] = b
+    for i in db_sess.query(Order).filter(Order.orders_courier == courier_id).all():
+        dh = db_sess.query(DH).filter(DH.order_id == i.id).all()
+        if i.complete_time:
+            continue
+        if i.region not in res['regions'] or not is_t_ok(dh, a):
             i.orders_courier = 0
-        db_sess.commit()
-        courier.currentw = 0
-        inds = choose_orders(list(map(lambda u: u.weight, ords)), courier.maxw)
-        for i in inds:
-            order = ords[i]
-            courier.currentw += order.weight
-            order.orders_courier = courier_id
-        db_sess.commit()
-        return jsonify(res), 200
-    elif request.method == 'GET':
+    db_sess.commit()
+    ords = list(db_sess.query(Order).filter(Order.orders_courier == courier_id,
+                                            Order.complete_time == '').all())
+    for i in ords:
+        i.orders_courier = 0
+    db_sess.commit()
+    courier.currentw = 0
+    inds = choose_orders(list(map(lambda u: u.weight, ords)), courier.maxw)
+    for i in inds:
+        order = ords[i]
+        courier.currentw += order.weight
+        order.orders_courier = courier_id
+    db_sess.commit()
+    return jsonify(res), 200
+
+
+@blueprint.route('/couriers/get', methods=["GET"])
+@login_required
+def get_courier():
+    if current_user.user_type != 2:
+        return redirect('/')
+    courier_id = current_user.c_id
+    db_sess = db_session.create_session()
+    courier = db_sess.query(Courier).filter(Courier.id == courier_id).first()
+    if request.method == 'GET':
         res = {'courier_id': courier_id, 'courier_type': rev_c_type[courier.maxw]}
         a = [i.hours for i in db_sess.query(WH).filter(WH.courier_id == courier.id).all()]
         res['working_hours'] = a
@@ -360,7 +394,14 @@ def edit_courier(courier_id):
             courier.last_pack_cost = 0
         res['earnings'] = courier.earnings
         if not courier.earnings:
-            return jsonify(res), 200
+            # return jsonify(res), 200
+            return render_template('courier_info.html',
+                                   t=res['courier_type'],
+                                   wh=str(res['working_hours']),
+                                   rs=str(res['regions']),
+                                   earnings='-',
+                                   rating='-'
+                                   )
         try:
             t = min([i.summa / i.q
                      for i in db_sess.query(Region).filter(Region.courier_id == courier.id).all() if
@@ -368,7 +409,14 @@ def edit_courier(courier_id):
         except ValueError:
             t = 60 * 60
         res['rating'] = round((60 * 60 - min(t, 60 * 60)) / (60 * 60) * 5, 2)
-        return jsonify(res), 200
+        # return jsonify(res), 200
+        return render_template('courier_info.html',
+                               t=res['courier_type'],
+                               wh=str(res['working_hours']),
+                               rs=str(res['regions']),
+                               earnings=str(res['earnings']),
+                               rating=str(res['rating'])
+                               )
 
 
 @blueprint.route('/orders/assign', methods=["POST", 'GET'])
@@ -387,7 +435,9 @@ def assign_orders():
     if ords:
         # print('didnt all task')
         res = [{'id': i.id} for i in ords]
-        return jsonify({'orders': res, 'assign_time': courier.last_assign_time}), 201
+        # return jsonify({'orders': res, 'assign_time': courier.last_assign_time}), 201
+        return render_template('result.html',
+                               u=str({'orders': res, 'assign_time': courier.last_assign_time}))
     courier_regions = [i.region for i in
                        db_sess.query(Region).filter(Region.courier_id == courier_id).all()]
     courier_wh = db_sess.query(WH).filter(WH.courier_id == courier_id).all()
@@ -408,7 +458,8 @@ def assign_orders():
            db_sess.query(Order).filter(Order.orders_courier == courier_id,
                                        '' == Order.complete_time)]
     if not res:
-        return jsonify({"orders": []}), 200
+        return render_template('result.html', u=str({"orders": []}))
+        # return jsonify({"orders": []}), 200
     courier.last_pack_cost = kd[courier.maxw] * 500
     # t = str(datetime.datetime.utcnow()).replace(' ', 'T') + 'Z'
     t = str(datetime.datetime.utcnow().isoformat()) + 'Z'
@@ -417,10 +468,11 @@ def assign_orders():
     if '' == courier.last_delivery_t:
         courier.last_delivery_t = assign_time
     db_sess.commit()
-    return jsonify({"orders": res, 'assign_time': str(assign_time)}), 200
+    return render_template('result.html', u=str({"orders": res, 'assign_time': str(assign_time)}))
+    # return jsonify({"orders": res, 'assign_time': str(assign_time)}), 200
 
 
-@blueprint.route('/orders/complete/<order_id>', methods=["POST"])
+@blueprint.route('/orders/complete/<order_id>', methods=["POST", 'GET'])
 @login_required
 def complete_orders(order_id):
     if current_user.user_type != 2:
@@ -435,11 +487,14 @@ def complete_orders(order_id):
     courier = db_sess.query(Courier).filter(Courier.id == courier_id).first()
     order = db_sess.query(Order).filter(Order.id == order_id).first()
     if not courier:
-        return jsonify({'message': 'no courier with this id'}), 400
+        # return jsonify({'message': 'no courier with this id'}), 400
+        return render_template('result.html', u=str({'message': 'no courier with this id'}))
     if not order:
-        return jsonify({'message': 'no order with this id'}), 400
+        # return jsonify({'message': 'no order with this id'}), 400
+        return render_template('result.html', u=str({'message': 'no order with this id'}))
     if order.orders_courier != courier.id:
-        return jsonify({'message': 'courier and order don\'t match'}), 400
+        # return jsonify({'message': 'courier and order don\'t match'}), 400
+        return render_template('result.html', u=str({'message': 'courier and order don\'t match'}))
     db_sess.commit()
     reg = db_sess.query(Region).filter(
         Region.region == order.region, Region.courier_id == courier_id
@@ -457,7 +512,8 @@ def complete_orders(order_id):
         courier.earnings += courier.last_pack_cost
         courier.last_pack_cost = 0
     db_sess.commit()
-    return jsonify({'order_id': order.id}), 200
+    # return jsonify({'order_id': order.id}), 200
+    return render_template('result.html', u=str({'order_id': order.id}))
 
 
 @blueprint.route('/test', methods=['GET'])
