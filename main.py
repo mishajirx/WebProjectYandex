@@ -1,4 +1,6 @@
 from flask import Flask, make_response, jsonify, request, render_template, redirect
+from flask_login import LoginManager, login_user, current_user, login_required, logout_user
+
 from data import db_session, shop_api
 from forms.registration import RegisterForm
 from data import db_session
@@ -8,17 +10,35 @@ from data.regions import Region
 from data.workinghours import WH
 from data.deliveryhours import DH
 from data.users import User
+from forms.login import LoginForm
 
 # комент
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'yandexlyceum_secret_key'
 x = 0
-d = {'Пользователь': 0, 'Курьер': 1}
+login_manager = LoginManager()
+login_manager.init_app(app)
+
+def hehe():
+    print('hehe')
+
+@login_manager.user_loader
+def load_user(user_id):
+    db_sess = db_session.create_session()
+    return db_sess.query(User).get(user_id)
+
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect("/")
 
 
 @app.route('/')
+@login_required
 def start():
-    return 'Start'
+    return 'Start ' + current_user.name
 
 
 @app.route('/login', methods=['GET', 'POST'])

@@ -3,7 +3,8 @@ import re
 from pprint import pprint
 
 import pydantic
-from flask import jsonify, abort, request, Blueprint
+from flask import jsonify, abort, request, Blueprint, render_template, redirect
+from flask_login import LoginManager, login_user, current_user, login_required, logout_user
 from data import db_session
 from data.couriers import Courier
 from data.orders import Order
@@ -48,7 +49,8 @@ class CourierModel(pydantic.BaseModel):
                 raise ValueError('invalid working hours format')
             if wh[2] != ':' or wh[5] != '-' or wh[8] != ':':
                 raise ValueError('invalid separators')
-            if not all(map(lambda x: x.isnumeric, [wh[0], wh[1], wh[3], wh[4], wh[6], wh[7], wh[9], wh[10]])):
+            if not all(map(lambda x: x.isnumeric,
+                           [wh[0], wh[1], wh[3], wh[4], wh[6], wh[7], wh[9], wh[10]])):
                 raise ValueError('Hours/minutes should be integer')
             else:
                 f1 = not 0 <= int(wh[0:2]) <= 23
@@ -84,7 +86,8 @@ class EditCourierModel(pydantic.BaseModel):
                 raise ValueError('invalid working hours format')
             if wh[2] != ':' or wh[5] != '-' or wh[8] != ':':
                 raise ValueError('invalid separators')
-            if not all(map(lambda x: x.isnumeric, [wh[0], wh[1], wh[3], wh[4], wh[6], wh[7], wh[9], wh[10]])):
+            if not all(map(lambda x: x.isnumeric,
+                           [wh[0], wh[1], wh[3], wh[4], wh[6], wh[7], wh[9], wh[10]])):
                 raise ValueError('Hours/minutes should be integer')
             else:
                 f1 = not 0 <= int(wh[0:2]) <= 23
@@ -183,8 +186,13 @@ def choose_orders(ords: list, maxw: int) -> list:
 
 
 @blueprint.route('/couriers', methods=["POST"])
+@login_required
 def add_couriers():
-    req_json = request.json['data']
+    if current_user.user_type != 3:
+        redirect('/')
+        # TODO форма
+
+    # req_json = request.json['data']
     db_sess = db_session.create_session()
     res = []
     bad_id = []
@@ -200,7 +208,8 @@ def add_couriers():
             flag = True
         if courier_info['courier_id'] in already_in_base:
             error_ans += [
-                {"loc": ["id"], "msg": "Invalid id: There is a courier with the same id", "type": "value_error"}
+                {"loc": ["id"], "msg": "Invalid id: There is a courier with the same id",
+                 "type": "value_error"}
             ]
         if flag or courier_info['courier_id'] in already_in_base:
             is_ok = False
@@ -232,7 +241,9 @@ def add_couriers():
 
 
 @blueprint.route('/orders', methods=["POST"])
+@login_required
 def add_orders():
+    # TODO Форма
     req_json = request.json['data']
     db_sess = db_session.create_session()
     res = []
@@ -249,7 +260,8 @@ def add_orders():
             flag = True
         if order_info['order_id'] in already_in_base:
             error_ans += [
-                {"loc": ["id"], "msg": "Invalid id: There is a order with the same id", "type": "value_error"}
+                {"loc": ["id"], "msg": "Invalid id: There is a order with the same id",
+                 "type": "value_error"}
             ]
         if flag or order_info['order_id'] in already_in_base:
             is_ok = False
@@ -278,7 +290,10 @@ def add_orders():
 
 
 @blueprint.route('/couriers/<courier_id>', methods=["PATCH", "GET"])
+@login_required
 def edit_courier(courier_id):
+    if current_user.user_type != 2 or courier_id != current_user.c_id:
+        return redirect('/')
     db_sess = db_session.create_session()
     courier = db_sess.query(Courier).filter(Courier.id == courier_id).first()
     if not courier:
@@ -320,7 +335,8 @@ def edit_courier(courier_id):
             if i.region not in res['regions'] or not is_t_ok(dh, a):
                 i.orders_courier = 0
         db_sess.commit()
-        ords = list(db_sess.query(Order).filter(Order.orders_courier == courier_id, Order.complete_time == '').all())
+        ords = list(db_sess.query(Order).filter(Order.orders_courier == courier_id,
+                                                Order.complete_time == '').all())
         for i in ords:
             i.orders_courier = 0
         db_sess.commit()
@@ -347,29 +363,39 @@ def edit_courier(courier_id):
             return jsonify(res), 200
         try:
             t = min([i.summa / i.q
-                     for i in db_sess.query(Region).filter(Region.courier_id == courier.id).all() if i.q != 0])
+                     for i in db_sess.query(Region).filter(Region.courier_id == courier.id).all() if
+                     i.q != 0])
         except ValueError:
             t = 60 * 60
         res['rating'] = round((60 * 60 - min(t, 60 * 60)) / (60 * 60) * 5, 2)
         return jsonify(res), 200
 
 
-@blueprint.route('/orders/assign', methods=["POST"])
+@blueprint.route('/orders/assign', methods=["POST", 'GET'])
+@login_required
 def assign_orders():
-    courier_id = request.json['courier_id']
+    if current_user.user_type != 2:
+        return redirect('/')
+    courier_id = current_user.c_id
+    # courier_id = request.json['courier_id']
     db_sess = db_session.create_session()
     courier = db_sess.query(Courier).filter(Courier.id == courier_id).first()
     if not courier:
         return jsonify({'message': 'no courier with this id'}), 400
-    ords = db_sess.query(Order).filter(Order.orders_courier == courier_id, Order.complete_time == '').all()
+    ords = db_sess.query(Order).filter(Order.orders_courier == courier_id,
+                                       Order.complete_time == '').all()
     if ords:
         # print('didnt all task')
         res = [{'id': i.id} for i in ords]
         return jsonify({'orders': res, 'assign_time': courier.last_assign_time}), 201
-    courier_regions = [i.region for i in db_sess.query(Region).filter(Region.courier_id == courier_id).all()]
+    courier_regions = [i.region for i in
+                       db_sess.query(Region).filter(Region.courier_id == courier_id).all()]
     courier_wh = db_sess.query(WH).filter(WH.courier_id == courier_id).all()
-    ords = db_sess.query(Order).filter((Order.orders_courier == 0), Order.region.in_(courier_regions)).all()
-    ords = list(filter(lambda u: is_t_ok(db_sess.query(DH).filter(DH.order_id == u.id).all(), courier_wh), ords))
+    ords = db_sess.query(Order).filter((Order.orders_courier == 0),
+                                       Order.region.in_(courier_regions)).all()
+    ords = list(
+        filter(lambda u: is_t_ok(db_sess.query(DH).filter(DH.order_id == u.id).all(), courier_wh),
+               ords))
     inds = choose_orders(list(map(lambda u: u.weight, ords)), courier.maxw)
     for i in inds:
         order = ords[i]
@@ -379,7 +405,8 @@ def assign_orders():
     db_sess.commit()
 
     res = [{'id': order.id} for order in
-           db_sess.query(Order).filter(Order.orders_courier == courier_id, '' == Order.complete_time)]
+           db_sess.query(Order).filter(Order.orders_courier == courier_id,
+                                       '' == Order.complete_time)]
     if not res:
         return jsonify({"orders": []}), 200
     courier.last_pack_cost = kd[courier.maxw] * 500
@@ -393,13 +420,18 @@ def assign_orders():
     return jsonify({"orders": res, 'assign_time': str(assign_time)}), 200
 
 
-@blueprint.route('/orders/complete', methods=["POST"])
-def complete_orders():
-    req_json = request.json
+@blueprint.route('/orders/complete/<order_id>', methods=["POST"])
+@login_required
+def complete_orders(order_id):
+    if current_user.user_type != 2:
+        return redirect('/')
+    # req_json = request.json
     db_sess = db_session.create_session()
-    courier_id = req_json['courier_id']
-    order_id = req_json['order_id']
-    complete_t = req_json['complete_time']
+    courier_id = current_user.c_id
+    # courier_id = req_json['courier_id']
+    # order_id = req_json['order_id']
+    complete_t = str(datetime.datetime.utcnow().isoformat()) + 'Z'
+    # complete_t = req_json['complete_time']
     courier = db_sess.query(Courier).filter(Courier.id == courier_id).first()
     order = db_sess.query(Order).filter(Order.id == order_id).first()
     if not courier:
@@ -429,8 +461,10 @@ def complete_orders():
 
 
 @blueprint.route('/test', methods=['GET'])
+@login_required
 def test():
-    return jsonify({"test": 'connection is here'}), 201
+    return render_template('go_home.html', u=current_user.name)
+    # return jsonify({"test": 'connection is here'}), 201
 
 
 @blueprint.route('/clear', methods=['POST'])
