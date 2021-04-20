@@ -56,7 +56,7 @@ class CourierModel(pydantic.BaseModel):
     @validator('working_hours')
     def wh_should_be(cls, working_hours: list):
         for wh in working_hours:
-            if not PATTERN.match(wh):
+            if not PATTERN.match(wh)  or len(wh) != 11:
                 raise ValueError('invalid working hours format')
             if wh[2] != ':' or wh[5] != '-' or wh[8] != ':':
                 raise ValueError('invalid separators')
@@ -93,7 +93,7 @@ class EditCourierModel(pydantic.BaseModel):
     @validator('working_hours')
     def wh_should_be(cls, working_hours: list):
         for wh in working_hours:
-            if not PATTERN.match(wh) or len(wh) != 9:
+            if not PATTERN.match(wh) or len(wh) != 11:
                 raise ValueError('invalid working hours format')
             if wh[2] != ':' or wh[5] != '-' or wh[8] != ':':
                 raise ValueError('invalid separators')
@@ -134,7 +134,7 @@ class OrderModel(pydantic.BaseModel):
     @validator('delivery_hours')
     def dh_should_be(cls, delivery_hours: list):
         for dh in delivery_hours:
-            if not PATTERN.match(dh):
+            if not PATTERN.match(dh) or len(dh) != 11:
                 raise ValueError('invalid working hours format')
             try:
                 map(int, [dh[0], dh[1], dh[3], dh[4], dh[6], dh[7], dh[9], dh[10]])
@@ -626,6 +626,19 @@ def complete_orders(order_id):
     db_sess.commit()
     # return jsonify({'order_id': order.id}), 200
     return render_template('result.html', u=str({'order_id': order.id}))
+
+
+@app.route('/orders/complete', methods=['POST', 'GET'])
+@login_required
+def list_orders():
+    if current_user.user_type != 2:
+        return redirect('/')
+    # req_json = request.json
+    db_sess = db_session.create_session()
+    courier_id = current_user.c_id
+    ords = db_sess.query(Order).filter(Order.orders_courier == courier_id,
+                                       Order.complete_time == '').all()
+    return render_template('uncompleted_orders.html', title='Несделанные заказы', items=ords)
 
 
 @app.route('/test', methods=['GET'])
