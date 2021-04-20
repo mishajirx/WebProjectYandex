@@ -12,7 +12,7 @@
 <body>
 <header>
     <nav class="navbar navbar-light bg-light">
-        <a class="navbar-brand" href="#">Наше приложение</a>
+        <a class="navbar-brand" href="#">Сласти от всех напастей!</a>
         {% if current_user.is_authenticated %}
 
         <a class="navbar-brand" href="/logout">{{ current_user.name }}</a>
@@ -42,6 +42,7 @@
                     {% elif current_user.user_type == 3 %}
                         <a class="btn btn-success" style = "width: 180px; height:80px" href="/couriers/delete">Удалить курьера</a>
                         <a class="btn btn-success" style = "width: 180px; height:80px" href="/couriers">Утвердить курьера</a>
+                        <a class="btn btn-success" style = "width: 180px; height:80px" href="/clear">Очистить базу данных</a>
 
                     {% endif %}
                 </p>

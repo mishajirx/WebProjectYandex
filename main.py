@@ -56,7 +56,7 @@ class CourierModel(pydantic.BaseModel):
     @validator('working_hours')
     def wh_should_be(cls, working_hours: list):
         for wh in working_hours:
-            if not PATTERN.match(wh)  or len(wh) != 11:
+            if not PATTERN.match(wh) or len(wh) != 11:
                 raise ValueError('invalid working hours format')
             if wh[2] != ':' or wh[5] != '-' or wh[8] != ':':
                 raise ValueError('invalid separators')
@@ -343,10 +343,12 @@ def add_couriers():
 
         if is_ok:
             db_sess.commit()
-            return jsonify({"couriers": res}), 201
+            return render_template('result.html', u=str({"couriers": res}))
+            # return jsonify({"couriers": res}), 201
         pprint({"validation_error": bad_id})
         print('-------------------------------------------------------------------------')
-        return jsonify({"validation_error": bad_id}), 400
+        return render_template('result.html', u=str({"validation_error": bad_id}))
+        # return jsonify({"validation_error": bad_id}), 400
     return render_template('available_couriers.html', title='Новый курьер', form=form)
 
 
@@ -641,11 +643,70 @@ def list_orders():
     return render_template('uncompleted_orders.html', title='Несделанные заказы', items=ords)
 
 
+@app.route('/couriers/delete', methods=["POST", 'GET'])
+@login_required
+def list_couriers():
+    # courier_id = request.json['courier_id']
+    if current_user.user_type < 3:
+        return redirect('/')
+    db_sess = db_session.create_session()
+    couriers = db_sess.query(Courier).all()
+    return render_template('existing_couriers.html', title='Существующие курьеры', items=couriers)
+
+
+@app.route('/couriers/delete/<courier_id>', methods=["POST", 'GET'])
+@login_required
+def delete_couriers(courier_id):
+    # courier_id = request.json['courier_id']
+    if current_user.user_type < 3:
+        return redirect('/')
+    db_sess = db_session.create_session()
+    courier = db_sess.query(Courier).filter(Courier.id == courier_id).first()
+    if not courier:
+        return render_template('result.html', u=str({'message': 'no courier with this id'}))
+        # return jsonify({'message': 'no courier with this id'}), 400
+    user = db_sess.query(User).filter(User.c_id == courier_id).first()
+    user.c_id = None
+    user.user_type = 1
+    ords = db_sess.query(Order).filter(Order.orders_courier == courier_id,
+                                       Order.complete_time != '').all()
+    for i in ords:
+        i.orders_courier = 0
+    regions = db_sess.query(Region).filter(Region.courier_id == courier_id).all()
+    for i in regions:
+        db_sess.delete(i)
+    whs = db_sess.query(WH).filter(WH.courier_id == courier_id).all()
+    for i in whs:
+        db_sess.delete(i)
+    db_sess.delete(courier)
+    db_sess.commit()
+    return render_template('result.html', u=str({"courier_id": courier_id}))
+    # return jsonify({"courier_id": courier_id}), 200
+
+
 @app.route('/test', methods=['GET'])
 @login_required
 def test():
     return render_template('go_home.html', u=current_user.name)
     # return jsonify({"test": 'connection is here'}), 201
+
+
+@app.route('/clear', methods=['POST', 'GET'])
+@login_required
+def clear():
+    # if request.json['code'] != CODE:
+    #     return jsonify({"error": "wrong code"}), 400
+    logout_user()
+    db_sess = db_session.create_session()
+    db_sess.query(Courier).delete()
+    db_sess.query(Order).delete()
+    db_sess.query(Region).delete()
+    db_sess.query(WH).delete()
+    db_sess.query(DH).delete()
+    db_sess.query(User).delete()
+    db_sess.commit()
+    return redirect('/')
+    # return jsonify({'status': 'all data cleared'}), 201
 
 
 def main():
