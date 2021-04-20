@@ -21,8 +21,9 @@ from data.deliveryhours import DH
 from data.users import User
 from forms.login import LoginForm
 from forms.what_couriers import NewCourierForm
-from forms.about_edit import EditInfoForm
+from forms.courier_edit import EditInfoForm
 from forms.homa_page import HomeForm
+from forms.user_edit import EditAboutForm
 
 # комент
 app = Flask(__name__)
@@ -652,6 +653,31 @@ def list_couriers():
     db_sess = db_session.create_session()
     couriers = db_sess.query(Courier).all()
     return render_template('existing_couriers.html', title='Существующие курьеры', items=couriers)
+
+
+@app.route('/users/edit', methods=['POST', 'GET'])
+@login_required
+def change_about():
+    if current_user.user_type > 1:
+        return redirect('/')
+    form = EditAboutForm()
+    if form.validate_on_submit():
+        db_sess = db_session.create_session()
+        user = db_sess.query(User).filter(User.id == current_user.id).first()
+        user.about = form.about.data
+        db_sess.commit()
+        print(form.about.data)
+        return redirect('/')
+    form.about.data = current_user.about
+    return render_template('edit_user.html', form=form, title="Изменить резюме")
+
+
+@app.route('/users/get', methods=['POST', 'GET'])
+@login_required
+def inside_about():
+    if current_user.user_type > 1:
+        return redirect('/')
+    return render_template('user_info.html', title="О пользователе", about=current_user.about)
 
 
 @app.route('/couriers/delete/<courier_id>', methods=["POST", 'GET'])

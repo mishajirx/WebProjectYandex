@@ -34,7 +34,12 @@
                 <p>
 
                     <a class="btn btn-success" style = "width: 80px; height:80px" href="/orders">Сделать заказ</a>
-                    {% if current_user.user_type == 2 %}
+                    {% if not current_user.is_authenticated %}
+                    <p>Вы не вошли в систему</p>
+                    {% elif current_user.user_type < 2 %}
+                    <a class="btn btn-success" style = "width: 180px; height:80px" href="/users/edit">Редактировать инфу</a>
+                    <a class="btn btn-success" style = "width: 180px; height:80px" href="/users/get">Обо мне</a>
+                    {% elif current_user.user_type == 2 %}
                         <a class="btn btn-success" style = "width: 180px; height:80px" href="/orders/assign">Взять заказ</a>
                         <a class="btn btn-success" style = "width: 180px; height:80px" href="/orders/complete">Выполнить заказ</a>
                         <a class="btn btn-success" style = "width: 180px; height:80px" href="/couriers/edit">Редактировать инфу</a>
