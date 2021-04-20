@@ -208,7 +208,6 @@ def logout():
 
 
 @app.route('/')
-@login_required
 def start():
     return 'Start ' + current_user.name
 
