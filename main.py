@@ -21,7 +21,7 @@ from data.deliveryhours import DH
 from data.users import User
 from forms.login import LoginForm
 from forms.what_couriers import NewCourierForm
-
+from forms.homa_page import HomeForm
 # комент
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'yandexlyceum_secret_key'
@@ -207,11 +207,12 @@ def logout():
     return redirect("/")
 
 
-@app.route('/')
+@app.route('/', methods=['GET', 'POST'])
 @login_required
 def start():
-    return 'Start ' + current_user.name
+    form = HomeForm()
 
+    return render_template('homepage.html', form=form)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
