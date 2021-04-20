@@ -21,6 +21,7 @@ from data.deliveryhours import DH
 from data.users import User
 from forms.login import LoginForm
 from forms.what_couriers import NewCourierForm
+from forms.about_edit import EditInfoForm
 
 # комент
 app = Flask(__name__)
@@ -194,6 +195,35 @@ def choose_orders(ords: list, maxw: int) -> list:
         return []
 
 
+def form_couriers_json(id_list: list, db_sess):
+    try:
+        ans = []
+        for i in id_list:
+            candidate = db_sess.query(User).filter(User.id == i).first()
+            t, rs, whs = candidate.about.split(';')
+            new_id = max([j.id for j in db_sess.query(Courier).all()]) + 1
+            ans.append({
+                'courier_id': new_id,
+                'courier_type': t,
+                'regions': list(map(int, rs.split(','))),
+                'working_hours': whs.split(','),
+                'user_id': i
+            })
+        print(ans)
+        return {'data': ans}
+    except Exception:
+        return False
+
+
+def from_few_fields_to_json(t, rs, whs):
+    d = {
+        'courier_type': t,
+        'regions': list(map(int, rs.split(','))),
+        'working_hours': whs.split(',')
+    }
+    return d
+
+
 @login_manager.user_loader
 def load_user(user_id):
     db_sess = db_session.create_session()
@@ -253,28 +283,11 @@ def reqister():
     return render_template('register.html', title='Регистрация', form=form)
 
 
-def form_couriers_json(id_list: list, db_sess):
-    ans = []
-    for i in id_list:
-        candidate = db_sess.query(User).filter(User.id == i).first()
-        t, rs, whs = candidate.about.split(';')
-        new_id = max([j.id for j in db_sess.query(Courier).all()]) + 1
-        ans.append({
-            'courier_id': new_id,
-            'courier_type': t,
-            'regions': list(map(int, rs.split(','))),
-            'working_hours': whs.split(','),
-            'user_id': i
-        })
-    print(ans)
-    return {'data': ans}
-
-
 @app.route('/couriers', methods=['GET', "POST"])
 @login_required
 def add_couriers():
     if current_user.user_type != 3:
-        redirect('/')
+        return redirect('/')
     form = NewCourierForm()
     db_sess = db_session.create_session()
     candidates = db_sess.query(User).filter(User.user_type == 1).all()
@@ -285,6 +298,8 @@ def add_couriers():
         res = []
         bad_id = []
         is_ok = True
+        if not req_json:
+            return render_template('result.html', u='invalid courier(s) information')
         for courier_info in req_json:
             flag = False
             error_ans = []
@@ -346,7 +361,7 @@ def add_orders():
         is_ok = True
         already_in_base = [i.id for i in db_sess.query(Order).all()]
         req_json.append({'order_id': max(already_in_base) + 1, 'weight': form.weight.data,
-                         'region': form.region.data, 'delivery_hours': form.dh.data.split(';')})
+                         'region': form.region.data, 'delivery_hours': form.dh.data.split(',')})
         print(req_json[0]['delivery_hours'])
         for order_info in req_json:
             flag = False
@@ -390,66 +405,80 @@ def add_orders():
     return render_template('new_order.html', title='Новый заказ', form=form)
 
 
-@app.route('/couriers/edit', methods=["PATCH"])
+@app.route('/couriers/edit', methods=["POST", 'GET'])
 @login_required
 def edit_courier():
     if current_user.user_type != 2:
         return redirect('/')
-    # TODO Форма
     courier_id = current_user.c_id
     db_sess = db_session.create_session()
     courier = db_sess.query(Courier).filter(Courier.id == courier_id).first()
     if not courier:
         return jsonify({'message': 'no courier with this id'}), 404
-    req_json = request.json
-    try:
-        EditCourierModel(**req_json)
-    except pydantic.ValidationError as e:
-        print({'errors': json.loads(e.json())})
-        return jsonify({'errors': json.loads(e.json())}), 400
-    for k, v in dict(req_json).items():
-        if k == 'courier_type':
-            courier.maxw = c_type[v]
-        elif k == 'regions':
-            db_sess.query(Region).filter(Region.courier_id == courier.id).delete()
-            for i in v:
-                reg = Region()
-                reg.courier_id = courier.id
-                reg.region = i
-                db_sess.add(reg)
-        elif k == 'working_hours':
-            db_sess.query(WH).filter(WH.courier_id == courier.id).delete()
-            for i in v:
-                wh = WH()
-                wh.courier_id = courier.id
-                wh.hours = i
-                db_sess.add(wh)
-    db_sess.commit()
-    res = {'courier_id': courier_id, 'courier_type': rev_c_type[courier.maxw]}
-    a = db_sess.query(WH).filter(WH.courier_id == courier.id).all()
-    res['working_hours'] = [i.hours for i in a]
-    b = [i.region for i in db_sess.query(Region).filter(Region.courier_id == courier.id).all()]
-    res['regions'] = b
-    for i in db_sess.query(Order).filter(Order.orders_courier == courier_id).all():
-        dh = db_sess.query(DH).filter(DH.order_id == i.id).all()
-        if i.complete_time:
-            continue
-        if i.region not in res['regions'] or not is_t_ok(dh, a):
+    form = EditInfoForm()
+    if form.validate_on_submit():
+
+        req_json = from_few_fields_to_json(
+            form.courier_type.data, form.regions.data, form.working_hours.data
+        )
+        # req_json = request.json
+        print(req_json)
+        try:
+            EditCourierModel(**req_json)
+        except pydantic.ValidationError as e:
+            print({'errors': json.loads(e.json())})
+            return jsonify({'errors': json.loads(e.json())}), 400
+        for k, v in dict(req_json).items():
+            if k == 'courier_type':
+                courier.maxw = c_type[v]
+            elif k == 'regions':
+                db_sess.query(Region).filter(Region.courier_id == courier.id).delete()
+                for i in v:
+                    reg = Region()
+                    reg.courier_id = courier.id
+                    reg.region = i
+                    db_sess.add(reg)
+            elif k == 'working_hours':
+                db_sess.query(WH).filter(WH.courier_id == courier.id).delete()
+                for i in v:
+                    wh = WH()
+                    wh.courier_id = courier.id
+                    wh.hours = i
+                    db_sess.add(wh)
+        db_sess.commit()
+        res = {'courier_id': courier_id, 'courier_type': rev_c_type[courier.maxw]}
+        a = db_sess.query(WH).filter(WH.courier_id == courier.id).all()
+        res['working_hours'] = [i.hours for i in a]
+        b = [i.region for i in db_sess.query(Region).filter(Region.courier_id == courier.id).all()]
+        res['regions'] = b
+        for i in db_sess.query(Order).filter(Order.orders_courier == courier_id).all():
+            dh = db_sess.query(DH).filter(DH.order_id == i.id).all()
+            if i.complete_time:
+                continue
+            if i.region not in res['regions'] or not is_t_ok(dh, a):
+                i.orders_courier = 0
+        db_sess.commit()
+        ords = list(db_sess.query(Order).filter(Order.orders_courier == courier_id,
+                                                Order.complete_time == '').all())
+        for i in ords:
             i.orders_courier = 0
-    db_sess.commit()
-    ords = list(db_sess.query(Order).filter(Order.orders_courier == courier_id,
-                                            Order.complete_time == '').all())
-    for i in ords:
-        i.orders_courier = 0
-    db_sess.commit()
-    courier.currentw = 0
-    inds = choose_orders(list(map(lambda u: u.weight, ords)), courier.maxw)
-    for i in inds:
-        order = ords[i]
-        courier.currentw += order.weight
-        order.orders_courier = courier_id
-    db_sess.commit()
-    return jsonify(res), 200
+        db_sess.commit()
+        courier.currentw = 0
+        inds = choose_orders(list(map(lambda u: u.weight, ords)), courier.maxw)
+        for i in inds:
+            order = ords[i]
+            courier.currentw += order.weight
+            order.orders_courier = courier_id
+        db_sess.commit()
+        return jsonify(res), 200
+    # form.courier_type.process_data(rev_c_type[courier.maxw])
+    form.courier_type.data = rev_c_type[courier.maxw]
+    form.regions.data = ','.join(
+        list(map(lambda x: str(x.region),
+                 db_sess.query(Region).filter(Region.courier_id == courier_id).all())))
+    form.working_hours.data = ','.join(
+        list(map(lambda x: x.hours, db_sess.query(WH).filter(WH.courier_id == courier_id).all())))
+    return render_template('edit_courier.html', form=form, title='Изменить информацию')
 
 
 @app.route('/couriers/get', methods=["GET"])

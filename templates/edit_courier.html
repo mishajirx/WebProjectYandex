@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Обо мне</h1>
+<form action="" method="post">
+    {{ form.hidden_tag() }}
+    <p>
+        {{ form.courier_type.label }}<br>
+        {{ form.courier_type(class="form-control") }}<br>
+        {% for error in form.courier_type.errors %}
+        <div class="alert alert-danger" role="alert">
+            {{ error }}
+        </div>
+        {% endfor %}
+    </p>
+    <p>
+        {{ form.regions.label }}<br>
+        {{ form.regions(class="form-control") }}<br>
+        {% for error in form.regions.errors %}
+        <div class="alert alert-danger" role="alert">
+            {{ error }}
+        </div>
+        {% endfor %}
+    </p>
+    <p>
+        {{ form.working_hours.label }}<br>
+        {{ form.working_hours(class="form-control") }}<br>
+        {% for error in form.working_hours.errors %}
+        <div class="alert alert-danger" role="alert">
+            {{ error }}
+        </div>
+        {% endfor %}
+    </p>
+    <p>{{ form.submit(type="submit", class="btn btn-primary") }}</p>
+    {{message}}
+</form>
+{% endblock %}
