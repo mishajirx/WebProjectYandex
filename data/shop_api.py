@@ -446,7 +446,7 @@ def test():
 
 
 @blueprint.route('/api/couriers/delete', methods=["POST"])
-def assign_orders():
+def delete_couriers():
     courier_id = request.json['courier_id']
     db_sess = db_session.create_session()
     courier = db_sess.query(Courier).filter(Courier.id == courier_id).first()

@@ -20,6 +20,7 @@ from data.workinghours import WH
 from data.deliveryhours import DH
 from data.users import User
 from forms.login import LoginForm
+from forms.what_couriers import NewCourierForm
 
 # комент
 app = Flask(__name__)
@@ -42,6 +43,7 @@ class CourierModel(pydantic.BaseModel):
     courier_type: str
     regions: List[int]
     working_hours: List[str]
+    user_id: Optional[int]
 
     @validator('courier_type')
     def courier_type_should_be(cls, courier_type: str):
@@ -192,14 +194,6 @@ def choose_orders(ords: list, maxw: int) -> list:
         return []
 
 
-def parsing_about(text):
-    try:
-        t, rs, whs = text.split(';')
-        return t, rs, whs
-    except Exception:
-        return False
-
-
 @login_manager.user_loader
 def load_user(user_id):
     db_sess = db_session.create_session()
@@ -260,65 +254,83 @@ def reqister():
     return render_template('register.html', title='Регистрация', form=form)
 
 
-@app.route('/couriers', methods=["POST"])
+def form_couriers_json(id_list: list, db_sess):
+    ans = []
+    for i in id_list:
+        candidate = db_sess.query(User).filter(User.id == i).first()
+        t, rs, whs = candidate.about.split(';')
+        new_id = max([j.id for j in db_sess.query(Courier).all()]) + 1
+        ans.append({
+            'courier_id': new_id,
+            'courier_type': t,
+            'regions': list(map(int, rs.split(','))),
+            'working_hours': whs.split(','),
+            'user_id': i
+        })
+    print(ans)
+    return {'data': ans}
+
+
+@app.route('/couriers', methods=['GET', "POST"])
 @login_required
 def add_couriers():
     if current_user.user_type != 3:
         redirect('/')
-        # TODO форма
-    req_json = request.json['data']
+    form = NewCourierForm()
     db_sess = db_session.create_session()
-    already_in_base = [i.id for i in db_sess.query(Courier).all()]
-    res = []
-    bad_id = []
-    is_ok = True
-    # for i in range(len())
-    # t, rs, ws = parsing_about(current_user.about)
+    candidates = db_sess.query(User).filter(User.user_type == 1).all()
+    form.couriers.choices = [(i.id, i.name) for i in candidates]
+    if form.validate_on_submit():
+        req_json = form_couriers_json(form.couriers.data, db_sess)['data']
+        already_in_base = [i.id for i in db_sess.query(Courier).all()]
+        res = []
+        bad_id = []
+        is_ok = True
+        for courier_info in req_json:
+            flag = False
+            error_ans = []
+            try:
+                CourierModel(**courier_info, base=already_in_base)
+            except pydantic.ValidationError as e:
+                error_ans += json.loads(e.json())
+                flag = True
+            if courier_info['courier_id'] in already_in_base:
+                error_ans += [
+                    {"loc": ["id"], "msg": "Invalid id: There is a courier with the same id",
+                     "type": "value_error"}
+                ]
+            if flag or courier_info['courier_id'] in already_in_base:
+                is_ok = False
+                bad_id.append({"id": int(courier_info['courier_id']), 'errors': error_ans})
+            if not is_ok:
+                continue
+            courier = Courier()
+            courier.id = courier_info['courier_id']
+            user = db_sess.query(User).filter(User.id == int(courier_info['user_id'])).first()
+            user.c_id = courier.id
+            user.user_type = 2
+            print(user)
+            courier.maxw = c_type[courier_info['courier_type']]
+            for i in list((courier_info['regions'])):
+                reg = Region()
+                reg.courier_id = courier.id
+                reg.region = i
+                db_sess.add(reg)
+            for i in list(courier_info['working_hours']):
+                wh = WH()
+                wh.courier_id = courier.id
+                wh.hours = i
+                db_sess.add(wh)
+            db_sess.add(courier)
+            res.append({"id": courier_info['courier_id']})
 
-    # req_json = [
-    #     {'courier_id': max(already_in_base) + 1, 'courier_type': t, 'regions': rs,
-    #      'working_hours': ws}
-    # ]
-    for courier_info in req_json:
-        flag = False
-        error_ans = []
-        try:
-            CourierModel(**courier_info, base=already_in_base)
-        except pydantic.ValidationError as e:
-            error_ans += json.loads(e.json())
-            flag = True
-        if courier_info['courier_id'] in already_in_base:
-            error_ans += [
-                {"loc": ["id"], "msg": "Invalid id: There is a courier with the same id",
-                 "type": "value_error"}
-            ]
-        if flag or courier_info['courier_id'] in already_in_base:
-            is_ok = False
-            bad_id.append({"id": int(courier_info['courier_id']), 'errors': error_ans})
-        if not is_ok:
-            continue
-        courier = Courier()
-        courier.id = courier_info['courier_id']
-        courier.maxw = c_type[courier_info['courier_type']]
-        for i in list((courier_info['regions'])):
-            reg = Region()
-            reg.courier_id = courier.id
-            reg.region = i
-            db_sess.add(reg)
-        for i in list(courier_info['working_hours']):
-            wh = WH()
-            wh.courier_id = courier.id
-            wh.hours = i
-            db_sess.add(wh)
-        db_sess.add(courier)
-        res.append({"id": courier_info['courier_id']})
-
-    if is_ok:
-        db_sess.commit()
-        return jsonify({"couriers": res}), 201
-    pprint({"validation_error": bad_id})
-    print('-------------------------------------------------------------------------')
-    return jsonify({"validation_error": bad_id}), 400
+        if is_ok:
+            db_sess.commit()
+            return jsonify({"couriers": res}), 201
+        pprint({"validation_error": bad_id})
+        print('-------------------------------------------------------------------------')
+        return jsonify({"validation_error": bad_id}), 400
+    return render_template('available_couriers.html', title='Новый курьер', form=form)
 
 
 @app.route('/orders', methods=["POST", 'GET'])
@@ -384,6 +396,7 @@ def add_orders():
 def edit_courier():
     if current_user.user_type != 2:
         return redirect('/')
+    # TODO Форма
     courier_id = current_user.c_id
     db_sess = db_session.create_session()
     courier = db_sess.query(Courier).filter(Courier.id == courier_id).first()
