@@ -22,6 +22,7 @@ from data.users import User
 from forms.login import LoginForm
 from forms.what_couriers import NewCourierForm
 from forms.about_edit import EditInfoForm
+from forms.homa_page import HomeForm
 
 # комент
 app = Flask(__name__)
@@ -92,7 +93,7 @@ class EditCourierModel(pydantic.BaseModel):
     @validator('working_hours')
     def wh_should_be(cls, working_hours: list):
         for wh in working_hours:
-            if not PATTERN.match(wh):
+            if not PATTERN.match(wh) or len(wh) != 9:
                 raise ValueError('invalid working hours format')
             if wh[2] != ':' or wh[5] != '-' or wh[8] != ':':
                 raise ValueError('invalid separators')
@@ -237,9 +238,11 @@ def logout():
     return redirect("/")
 
 
-@app.route('/')
+@app.route('/', methods=['GET', 'POST'])
 def start():
-    return 'Start ' + current_user.name
+    form = HomeForm()
+
+    return render_template('homepage.html', form=form)
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -350,8 +353,6 @@ def add_couriers():
 @app.route('/orders', methods=["POST", 'GET'])
 @login_required
 def add_orders():
-    if current_user.user_type != 0:
-        return redirect('/')
     form = MakeOrderForm()
     if form.validate_on_submit():
         req_json = []
@@ -417,17 +418,20 @@ def edit_courier():
         return jsonify({'message': 'no courier with this id'}), 404
     form = EditInfoForm()
     if form.validate_on_submit():
-
-        req_json = from_few_fields_to_json(
-            form.courier_type.data, form.regions.data, form.working_hours.data
-        )
+        try:
+            req_json = from_few_fields_to_json(
+                form.courier_type.data, form.regions.data, form.working_hours.data
+            )
+        except Exception as e:
+            return render_template('result.html', u=str({'errors': e}))
         # req_json = request.json
         print(req_json)
         try:
             EditCourierModel(**req_json)
         except pydantic.ValidationError as e:
             print({'errors': json.loads(e.json())})
-            return jsonify({'errors': json.loads(e.json())}), 400
+            return render_template('result.html', u=str({'errors': json.loads(e.json())}))
+            # return jsonify({'errors': json.loads(e.json())}), 400
         for k, v in dict(req_json).items():
             if k == 'courier_type':
                 courier.maxw = c_type[v]
@@ -470,7 +474,8 @@ def edit_courier():
             courier.currentw += order.weight
             order.orders_courier = courier_id
         db_sess.commit()
-        return jsonify(res), 200
+        return render_template('result.html', u=str(res))
+        # return jsonify(res), 200
     # form.courier_type.process_data(rev_c_type[courier.maxw])
     form.courier_type.data = rev_c_type[courier.maxw]
     form.regions.data = ','.join(
